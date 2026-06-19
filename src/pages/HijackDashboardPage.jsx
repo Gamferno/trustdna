@@ -23,6 +23,7 @@ export default function HijackDashboardPage() {
   const navigate = useNavigate();
   const [hijackState, setHijackState] = useState('pre');
   const [trustScore, setTrustScore] = useState(94);
+  const [hijackControlActive, setHijackControlActive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [signals, setSignals] = useState({});
   const [showBalance, setShowBalance] = useState(false);
@@ -49,7 +50,10 @@ export default function HijackDashboardPage() {
       try {
         const data = await getSessionMonitor(sessionToken);
         if (data) {
-          setTrustScore(data.current_trust);
+          // Once hijack is active, only advanceHijack controls the trust score
+          if (!hijackControlActive) {
+            setTrustScore(data.current_trust);
+          }
           setSignals(data.signals_active || {});
         }
       } catch {}
@@ -58,11 +62,12 @@ export default function HijackDashboardPage() {
     poll();
     intervalRef.current = setInterval(poll, 2000);
     return () => clearInterval(intervalRef.current);
-  }, [sessionToken, navigate]);
+  }, [sessionToken, navigate, hijackControlActive]);
 
   const startHijack = async () => {
     try {
       await triggerHijack(sessionToken);
+      setHijackControlActive(true);
       setHijackState('active');
       setElapsed(0);
 

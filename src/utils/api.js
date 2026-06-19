@@ -480,17 +480,37 @@ export async function getSessionMonitor(sessionToken) {
     currentTrust = Math.max(session.initial_trust || 95 - degradation, 30);
   }
 
-  // During active hijack, return actual trust without fluctuation so it decreases monotonically
+  // During active hijack, return actual trust without fluctuation so it decreases monotonically.
+  // Signals degrade immediately as trust drops — the changing signals ARE why trust decreases.
   if (session.hijack_active) {
-    const isBad = currentTrust <= 60;
+    const trust = currentTrust;
+    const scale = Math.max(0, Math.min(1, (94 - trust) / 64));
+
+    const signalTemplates = {
+      keystroke_rhythm: { stableLo: 1.5, stableHi: 3.8, badLo: 15, badHi: 40 },
+      mouse_patterns:    { stableLo: 2.0, stableHi: 5.1, badLo: 20, badHi: 55 },
+      navigation_flow:   { stableLo: 0.5, stableHi: 2.2, badLo: 10, badHi: 35 },
+    };
+
+    const signals_active = {};
+    for (const [key, t] of Object.entries(signalTemplates)) {
+      const lo = t.stableLo + (t.badLo - t.stableLo) * scale;
+      const hi = t.stableHi + (t.badHi - t.stableHi) * scale;
+      const deviation = Math.round((lo + Math.random() * (hi - lo)) * 10) / 10;
+
+      let status;
+      if (trust >= 85)            status = 'stable';
+      else if (trust >= 70)       status = 'degrading';
+      else if (trust >= 50)       status = 'erratic';
+      else                        status = 'critical';
+
+      signals_active[key] = { status, deviation };
+    }
+
     return {
-      current_trust: currentTrust,
+      current_trust: trust,
       session_age_seconds: Math.floor(Math.random() * 480) + 120,
-      signals_active: {
-        keystroke_rhythm: { status: isBad ? 'degrading' : 'stable', deviation: Math.round((isBad ? rng() * 25 + 15 : rng() * 2.3 + 1.5) * 10) / 10 },
-        mouse_patterns: { status: isBad ? 'erratic' : 'normal', deviation: Math.round((isBad ? rng() * 35 + 20 : rng() * 3.1 + 2) * 10) / 10 },
-        navigation_flow: { status: isBad ? 'anomalous' : 'normal', deviation: Math.round((isBad ? rng() * 25 + 10 : rng() * 1.7 + 0.5) * 10) / 10 },
-      },
+      signals_active,
     };
   }
 
