@@ -50,11 +50,11 @@ export default function HijackDashboardPage() {
       try {
         const data = await getSessionMonitor(sessionToken);
         if (data) {
-          // Once hijack is active, only advanceHijack controls the trust score
+          // Once hijack is active, only advanceHijack controls trust and signals
           if (!hijackControlActive) {
             setTrustScore(data.current_trust);
+            setSignals(data.signals_active || {});
           }
-          setSignals(data.signals_active || {});
         }
       } catch {}
     };
@@ -77,6 +77,9 @@ export default function HijackDashboardPage() {
           if (result) {
             setElapsed(result.elapsed_seconds);
             setTrustScore(result.current_trust);
+            if (result.signals_active) {
+              setSignals(result.signals_active);
+            }
 
             if (result.current_trust < 50) {
               setHijackState('critical');

@@ -466,6 +466,28 @@ export async function getSOCAlerts(filterSeverity = 'all', limit = 20) {
   return { alerts: alerts.slice(0, limit).map((a) => ({ ...a })) };
 }
 
+function computeHijackSignals(trust) {
+  const scale = Math.max(0, Math.min(1, (94 - trust) / 64));
+  const templates = {
+    keystroke_rhythm: { stableLo: 1.5, stableHi: 3.8, badLo: 15, badHi: 40 },
+    mouse_patterns:    { stableLo: 2.0, stableHi: 5.1, badLo: 20, badHi: 55 },
+    navigation_flow:   { stableLo: 0.5, stableHi: 2.2, badLo: 10, badHi: 35 },
+  };
+  const signals = {};
+  for (const [key, t] of Object.entries(templates)) {
+    const lo = t.stableLo + (t.badLo - t.stableLo) * scale;
+    const hi = t.stableHi + (t.badHi - t.stableHi) * scale;
+    const deviation = Math.round((lo + Math.random() * (hi - lo)) * 10) / 10;
+    let status;
+    if (trust >= 85)            status = 'stable';
+    else if (trust >= 70)       status = 'degrading';
+    else if (trust >= 50)       status = 'erratic';
+    else                        status = 'critical';
+    signals[key] = { status, deviation };
+  }
+  return signals;
+}
+
 export async function getSessionMonitor(sessionToken) {
   const session = sessions[sessionToken];
   if (!session) throw new Error('Invalid session token');
@@ -484,33 +506,10 @@ export async function getSessionMonitor(sessionToken) {
   // Signals degrade immediately as trust drops — the changing signals ARE why trust decreases.
   if (session.hijack_active) {
     const trust = currentTrust;
-    const scale = Math.max(0, Math.min(1, (94 - trust) / 64));
-
-    const signalTemplates = {
-      keystroke_rhythm: { stableLo: 1.5, stableHi: 3.8, badLo: 15, badHi: 40 },
-      mouse_patterns:    { stableLo: 2.0, stableHi: 5.1, badLo: 20, badHi: 55 },
-      navigation_flow:   { stableLo: 0.5, stableHi: 2.2, badLo: 10, badHi: 35 },
-    };
-
-    const signals_active = {};
-    for (const [key, t] of Object.entries(signalTemplates)) {
-      const lo = t.stableLo + (t.badLo - t.stableLo) * scale;
-      const hi = t.stableHi + (t.badHi - t.stableHi) * scale;
-      const deviation = Math.round((lo + Math.random() * (hi - lo)) * 10) / 10;
-
-      let status;
-      if (trust >= 85)            status = 'stable';
-      else if (trust >= 70)       status = 'degrading';
-      else if (trust >= 50)       status = 'erratic';
-      else                        status = 'critical';
-
-      signals_active[key] = { status, deviation };
-    }
-
     return {
       current_trust: trust,
       session_age_seconds: Math.floor(Math.random() * 480) + 120,
-      signals_active,
+      signals_active: computeHijackSignals(trust),
     };
   }
 
@@ -550,12 +549,13 @@ export async function advanceHijack(sessionToken) {
   const newScore = Math.max((session.initial_trust || 95) - degradation, 30);
   session.trust_score = newScore;
 
-  const status = newScore >= 80 ? 'normal' : newScore >= 50 ? 'degrading' : 'critical';
+  const sessionStatus = newScore >= 80 ? 'normal' : newScore >= 50 ? 'degrading' : 'critical';
 
   return {
     elapsed_seconds: elapsed,
     current_trust: newScore,
-    status,
+    status: sessionStatus,
     next_action: newScore >= 80 ? 'continue' : newScore >= 50 ? 'step_up_required' : 'session_terminated',
+    signals_active: computeHijackSignals(newScore),
   };
 }
